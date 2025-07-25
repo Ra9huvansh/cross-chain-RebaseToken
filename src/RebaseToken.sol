@@ -76,8 +76,14 @@ contract RebaseToken is ERC20{
      * @param _amount The principal amount of tokens to mint.
      */
     function mint(address _to, uint256 _amount) external { //TODO: Add access control (e.g., onlyVault)
-        _mintAccruedInterest(_to);
+        _mintAccruedInterest(_to); //Step 1: Mint any existing accrued interest for the user
+
+        //Step 2: Update the user's interest rate for future calculations if necessary
+        //This assumes s_interestRate is the current global interest rate.
+        //If the user already has a deposit, their rate might be updated.
         s_userInterestRate[_to] = s_interestRate;
+
+        //Step 3: Mint the newly deposited amount
         _mint(_to, _amount);
     }
 
@@ -87,12 +93,22 @@ contract RebaseToken is ERC20{
      * @param _user The address of the user.
      */
     function _mintAccruedInterest(address _user) internal {
-        //TODO: Implement full logic to calculate and mint actual interest tokens.
-        //The amount of interest to mint would be:
-        //current_dynamic_balance - current_stored_principal_balance
-        //Then, _mint(_user, interest_amount_to_mint);
-        
+        // (1) find their current balance of rebase tokens that have been minted to the user -> principle balance
+        uint256 previousPrincipleBalance = super.balanceOf(_user);
+
+        // (2) calculate their current balance including any interest -> balanceOf
+        uint256 currentBalance = balanceOf(_user);
+
+        // calculate the number of tokens that need to be minted to the user -> (2) - (1)
+        uint256 balanceIncrease = currentBalance - previousPrincipleBalance;
+
+        // set the users last updated timestamp (Effect)
         s_userLastUpdatedTimestamp[_user] = block.timestamp;
+        
+        // Mint the accrued interest (Interaction)
+        if (balanceIncrease > 0) { // Optimization: only mint if there's interest
+            _mint(_user, balanceIncrease);
+        }
     }
 
     /**
@@ -136,5 +152,33 @@ contract RebaseToken is ERC20{
         //Since '1' is represented as PRECISION_FACTOR, and the fractionalInterest is already scaled, we add them.
         uint256 linearInterestFactor = PRECISION_FACTOR + fractionalInterest;
         return linearInterestFactor;
+    }
+
+    /**
+     * @notice Burn the user tokens, e.g., when they withdraw from a vault or for cross-chain transfers.
+     * Handles burning the entire balance if _amount is type(uint256).max.
+     * @param _from The user address from which to burn tokens.
+     * @param _amount The amount of tokens to burn. Use type(uint256).max to burn all tokens.
+     */ 
+    function burn(address _from, uint256 _amount) external { //Acess control to be added as needed
+        uint256 currentTotalBalance = balanceOf(_from); //Calculate this once for efficiency if needed for checks
+
+        if(_amount == type(uint256).max) {
+            _amount = currentTotalBalance; //Set amount to full current balance
+        }
+
+        // Ensure _amount does not exceed actual balance after potential interest accrual
+        // This check is important especially if _amount wasn't type(uint256).max
+        // _mintAccruedInterest will update the super.balanceOf(_from)
+        // So, after _mintAccruedInterest, super.balanceOf(_from) should be currentTotalBalance
+        // The ERC20 _burn function will typically revert if _amount > super.balanceOf(_from)
+
+        _mintAccruedInterest(_from); // Mint any accrued interest first
+
+        // At this point, super.balanceOf(_from) reflects the balance including all interest up to now.
+        // If _amount was type(uint256).max, then _amount == super.balanceOf(_from)
+        // If _amount was specific, super.balanceOf(_from) >= _amount for _burn to succeed.
+
+        _burn(_from, _amount);
     }
 }
