@@ -1,4 +1,4 @@
-//SPDX-License-Identifer: MIT
+//SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
 // Layout of Contract:
@@ -93,7 +93,7 @@ contract Vault {
 
         // 2. Interactions (External calls / ETH transfer last)
         // Send the equivalent amount of ETH back to the user
-        (bool success, ) = payable(msg.sender).call(value: _amount)("");
+        (bool success, ) = payable(msg.sender).call{value: _amount}("");
 
         // Check if the ETH transfer succeeded
         if(!success){
