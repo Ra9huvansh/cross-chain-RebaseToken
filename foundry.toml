@@ -3,10 +3,14 @@ src = "src"
 out = "out"
 libs = ["lib"]
 
+rpc_endpoints = { sepolia = "https://eth-sepolia.g.alchemy.com/v2/_J5YKSudQszD87gDo2zIl", arb-sepolia = "https://arb-sepolia.g.alchemy.com/v2/RyvdLcXf5zJxYyxeqCInY"}
+
 remappings = [
     "@openzeppelin/=lib/openzeppelin-contracts/",
     "@ccip/=lib/ccip/",
+    "@chainlink-local/=lib/chainlink-local/",
 ]
+
 
 [fuzz]
 runs = 2000

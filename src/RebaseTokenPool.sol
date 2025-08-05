@@ -37,7 +37,7 @@ contract RebaseTokenPool is TokenPool {
         });
     }
 
-    /// @notice Mints the tokens on the source chain
+    /// @notice Mints the tokens on the destination chain
     function releaseOrMint(Pool.ReleaseOrMintInV1 calldata releaseOrMintIn)
         external
         returns (Pool.ReleaseOrMintOutV1 memory)
