@@ -71,7 +71,7 @@ contract Vault {
         } 
 
         // Call the mint function on the RebaseToken contract
-        i_rebaseToken.mint(msg.sender, amountToMint);
+        i_rebaseToken.mint(msg.sender, amountToMint, i_rebaseToken.getInterestRate());
 
         // Emit an event to log the deposit
         emit Deposit(msg.sender, amountToMint);

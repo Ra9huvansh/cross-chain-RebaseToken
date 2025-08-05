@@ -76,18 +76,15 @@ contract RebaseToken is ERC20, Ownable, AccessControl {
      * @notice Mints tokens to a user, typically upon deposit,
      * @dev Also mints accrued interest and locks in the current global rate for the user.
      * @param _to The address to mint tokens to
-     * @param _amount The principal amount of tokens to mint.
+     * @param _value The principal amount of tokens to mint.
+     * @param _userInterestRate The user's specific interest rate.
      */
-    function mint(address _to, uint256 _amount) external onlyRole(MINT_AND_BURN_ROLE) {
-        _mintAccruedInterest(_to); //Step 1: Mint any existing accrued interest for the user
-
-        //Step 2: Update the user's interest rate for future calculations if necessary
-        //This assumes s_interestRate is the current global interest rate.
-        //If the user already has a deposit, their rate might be updated.
-        s_userInterestRate[_to] = s_interestRate;
-
-        //Step 3: Mint the newly deposited amount
-        _mint(_to, _amount);
+    function mint(address _to, uint256 _value, uint256 _userInterestRate) public onlyRole(MINT_AND_BURN_ROLE) {
+        // Mints any existing interest that has accrued since the last time the user's balance was updated.
+        _mintAccruedInterest(_to);
+        // Sets the users interest rate to either their bridged value if they are bridging or to the current interest rate if they are depositing.
+        s_userInterestRate[_to] = _userInterestRate;
+        _mint(_to, _value);
     }
 
     /**
