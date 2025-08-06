@@ -18,6 +18,12 @@ import {TokenAdminRegistry} from "@ccip/contracts/src/v0.8/ccip/tokenAdminRegist
 
 import {RateLimiter} from "@ccip/contracts/src/v0.8/ccip/libraries/RateLimiter.sol";
 
+import { Client } from "@ccip/contracts/src/v0.8/ccip/libraries/Client.sol";
+
+import { IRouterClient } from "@ccip/contracts/src/v0.8/ccip/interfaces/IRouterClient.sol";
+import { CCIPReceiver } from "@ccip/contracts/src/v0.8/ccip/applications/CCIPReceiver.sol";
+
+
 contract CrossChainTest is Test {
     uint256 sepoliaFork;
     uint256 arbSepoliaFork;
@@ -34,6 +40,7 @@ contract CrossChainTest is Test {
     Register.NetworkDetails arbSepoliaNetworkDetails;
 
     address owner = makeAddr("owner");
+    address user = makeAddr("user");
 
     function setUp() public {
         // 1. Create and select the initial(source) fork (Sepolia)
@@ -109,7 +116,7 @@ contract CrossChainTest is Test {
         );
 
         /*//////////////////////////////////////////////////////////////
-                       GRANTINGMINTANDBURNACCESS
+                       GRANTING MINT AND BURN ACCESS
         //////////////////////////////////////////////////////////////*/
 
         // On Sepolia fork
@@ -207,8 +214,6 @@ contract CrossChainTest is Test {
 
 
 
-    
-
     // owner, sepoliaFork, arbSepoliaFork, sepoliaPool, arbSepoliaPool,
     // sepoliaToken, arbSepoliaToken, sepoliaNetworkDetails, arbSepoliaNetworkDetails
     // are assumed to be defined elsewhere in your test setup.
@@ -259,9 +264,103 @@ contract CrossChainTest is Test {
         vm.prank(owner); // The 'owner' variable should be the deployer/owner of the localPoolAddress
         TokenPool(localPoolAddress).applyChainUpdates(
             // remoteChainSelectorsToRemove,
-            chainsToAdd
+            chainsToAdd 
         );
     }
 
+
+    function bridgeTokens(
+        uint256 amountToBridge,
+        uint256 localFork, // Source chain fork ID
+        uint256 remoteFork, // Destination chain fork ID
+        Register.NetworkDetails memory localNetworkDetails, // Struct with source chain info
+        Register.NetworkDetails memory remoteNetworkDetails, // Struct with dest. chain info
+        RebaseToken localToken, // Source token contract instance
+        RebaseToken remoteToken // Destination token contract instance
+    ) public {
+
+        vm.selectFork(localFork);
+
+        vm.startPrank(user);
+        // 1. Initialize tokenAmounts array 
+        Client.EVMTokenAmount[] memory tokenAmounts = new Client.EVMTokenAmount[](1);
+        tokenAmounts[0] = Client.EVMTokenAmount({
+            token: address(localToken), //Token address n
+            amount: amountToBridge
+        });
+
+        // 2. Construct the EVM2AnyMessage
+        Client.EVM2AnyMessage memory message = Client.EVM2AnyMessage({
+            receiver: abi.encode(user), // Receiver on the destination chain
+            data: "",                   // No additional data payload in this example
+            tokenAmounts: tokenAmounts, // The tokens and amounts to transfer
+            feeToken: localNetworkDetails.linkAddress, // Using LINK as the fee token
+            extraArgs: Client._argsToBytes(
+                Client.EVMExtraArgsV1({gasLimit: 0}) // Use default gas limit
+            )
+        });
+        vm.stopPrank();
+
+        // 3. Get the CCIP fee
+        uint256 fee = IRouterClient(localNetworkDetails.routerAddress).getFee(
+            remoteNetworkDetails.chainSelector, // Destination chain ID
+            message
+        );
+
+        // 4. Fund the user with LINK (for testing via CCIPLocalSimulatorFork)
+        // This step is specific to the local simulator
+        ccipLocalSimulatorFork.requestLinkFromFaucet(user, fee);
+
+        // 5. Approve LINK for the Router
+        vm.prank(user);
+        IERC20(localNetworkDetails.linkAddress).approve(localNetworkDetails.routerAddress, fee);
+
+        // 6. Approve the actual token to be bridged
+        vm.prank(user);
+        IERC20(address(localToken)).approve(localNetworkDetails.routerAddress, amountToBridge);
+
+
+        // 7. Get user's balance on the local chain BEFORE sending
+        uint256 localBalanceBefore = localToken.balanceOf(user);
+        
+        // 8. Send the CCIP message
+        vm.prank(user);
+        IRouterClient(localNetworkDetails.routerAddress).ccipSend(
+            remoteNetworkDetails.chainSelector, // Destination chain ID
+            message
+        );
+        
+        // 9. Get user's balance on the local chain AFTER sending and assert
+        uint256 localBalanceAfter = localToken.balanceOf(user);
+        assertEq(localBalanceAfter, localBalanceBefore - amountToBridge, "Local balance incorrect after send");
+
+
+        // 10. Simulate message propagation to the remote chain
+        vm.warp(block.timestamp + 20 minutes); // Fast-forward time
+        
+        // 11. Get user's balance on the remote chain BEFORE message processing
+        // Ensure vm.selectFork(remoteFork) is called if not handled by switchChainAndRouteMessage
+        uint256 remoteBalanceBefore = remoteToken.balanceOf(user);
+
+
+        // 12. Process the message on the remote chain (using CCIPLocalSimulatorFork)
+        ccipLocalSimulatorFork.switchChainAndRouteMessage(remoteFork);
+        
+        // 13. Get user's balance on the remote chain AFTER message processing and assert
+        uint256 remoteBalanceAfter = remoteToken.balanceOf(user);
+        assertEq(remoteBalanceAfter, remoteBalanceBefore + amountToBridge, "Remote balance incorrect after receive");
+
+
+        // 14. Check interest rates (specific to RebaseToken logic)
+        // IMPORTANT: localUserInterestRate should be fetched *before* switching to remoteFork
+        // Example: Fetch localUserInterestRate while still on localFork
+        vm.selectFork(localFork);
+        uint256 localUserInterestRate = localToken.getUserInterestRate(user);
+        vm.selectFork(remoteFork); // Switch back if necessary or rely on switchChainAndRouteMessage
+        uint256 remoteUserInterestRate = remoteToken.getUserInterestRate(user); // Called on remoteFork
+        assertEq(remoteUserInterestRate, localUserInterestRate, "Interest rates do not match");
+    }
+
+    
 
 }
