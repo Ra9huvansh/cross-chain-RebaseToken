@@ -11,6 +11,7 @@ remappings = [
     "@chainlink-local/=lib/chainlink-local/",
 ]
 
+via_ir = true
 
 [fuzz]
 runs = 2000
